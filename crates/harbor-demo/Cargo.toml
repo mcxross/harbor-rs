@@ -1,0 +1,19 @@
+[package]
+name = "harbor-demo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+harbor-core = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+sui-crypto = { workspace = true }
+sui-rpc = { workspace = true }
+seal-sdk-rs = { workspace = true }
+base64 = { workspace = true }
+bech32 = { workspace = true }
+fastcrypto.workspace = true
+async-trait = "0.1.89"
+reqwest.workspace = true
+sui-sdk-types.workspace = true

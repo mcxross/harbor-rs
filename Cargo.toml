@@ -1,0 +1,44 @@
+[workspace]
+members = [
+    "crates/harbor-core",
+    "crates/harbor-demo"
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[workspace.lints]
+rust = {}
+
+[workspace.dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+bcs = "0.1.6"
+bech32 = "0.11.1"
+bytes = "1.10.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "multipart"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0.17"
+tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "5f87e04bb21d295ef6b39375a06615d45cbb906c", features = ["aes"] }
+seal_crypto = { package = "crypto", git = "https://github.com/mystenlabs/seal", rev = "7c35954" }
+seal-sdk-rs = { git = "https://github.com/astinz/seal-sdk-rs.git", branch = "main", default-features = false, features = ["client", "native-sui-sdk"] }
+
+sui-crypto = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "51ea346", features = ["bech32", "ed25519"] }
+sui-rpc = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "51ea346" }
+sui-sdk-types = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "51ea346", features = ["hash", "serde"] }
+sui-transaction-builder = { git = "https://github.com/mystenlabs/sui-rust-sdk", rev = "51ea346" }
+
+harbor-core = { path = "crates/harbor-core" }
+sui_types = { package = "sui-types", git = "https://github.com/mystenlabs/sui", tag = "mainnet-v1.73.2" }
+sui_keys = { package = "sui-keys", git = "https://github.com/mystenlabs/sui", tag = "mainnet-v1.73.2" }
+sui_sdk = { package = "sui-sdk", git = "https://github.com/mystenlabs/sui", tag = "mainnet-v1.73.2" }
+shared_crypto = { package = "shared-crypto", git = "https://github.com/MystenLabs/sui", tag = "mainnet-v1.73.2" }
+sui_json_rpc_types = { package = "sui-json-rpc-types", git = "https://github.com/mystenlabs/sui", tag = "mainnet-v1.73.2" }
