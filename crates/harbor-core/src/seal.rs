@@ -2,17 +2,17 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use async_trait::async_trait;
+use fastcrypto::ed25519::Ed25519KeyPair;
+use fastcrypto::traits::Signer;
 use rand::RngCore;
 use seal_sdk_rs::base_client::{BaseSealClient, KeyServerConfig};
 use seal_sdk_rs::cache::NoCache;
 use seal_sdk_rs::error::SealClientError;
 use seal_sdk_rs::generic_types::ObjectID;
-use fastcrypto::ed25519::Ed25519KeyPair;
-use fastcrypto::traits::Signer;
 use sui_sdk_types::Address;
 
 use crate::error::HarborError;
-use crate::sui::{build_seal_approve_ptb, CurrentSuiClientAdapter};
+use crate::sui::{CurrentSuiClientAdapter, build_seal_approve_ptb};
 
 #[derive(Clone)]
 pub struct SealReqwestClient {
@@ -24,6 +24,12 @@ impl SealReqwestClient {
         Self {
             client: reqwest::Client::new(),
         }
+    }
+}
+
+impl Default for SealReqwestClient {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -49,24 +55,22 @@ impl seal_sdk_rs::http_client::HttpClient for SealReqwestClient {
             .map_err(|error| SealClientError::CannotUnwrapTypedError {
                 error_message: error.to_string(),
             })?;
-            
+
         let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .map_err(|error| SealClientError::CannotUnwrapTypedError {
-                error_message: error.to_string(),
-            })?;
-            
+        let text =
+            response
+                .text()
+                .await
+                .map_err(|error| SealClientError::CannotUnwrapTypedError {
+                    error_message: error.to_string(),
+                })?;
+
         Ok(seal_sdk_rs::http_client::PostResponse { status, text })
     }
 }
 
 type HarborSealClient = BaseSealClient<
-    NoCache<
-        seal_sdk_rs::cache_key::KeyServerInfoCacheKey,
-        seal_sdk_rs::base_client::KeyServerInfo,
-    >,
+    NoCache<seal_sdk_rs::cache_key::KeyServerInfoCacheKey, seal_sdk_rs::base_client::KeyServerInfo>,
     NoCache<seal_sdk_rs::cache_key::DerivedKeyCacheKey, seal_sdk_rs::base_client::DerivedKeys>,
     SealClientError,
     CurrentSuiClientAdapter,
@@ -93,7 +97,11 @@ impl HarborSealService {
             .into_iter()
             .map(|id| {
                 KeyServerConfig::new(
-                    ObjectID(Address::from_str(id).expect("invalid key server id").into_inner()),
+                    ObjectID(
+                        Address::from_str(id)
+                            .expect("invalid key server id")
+                            .into_inner(),
+                    ),
                     None,
                 )
             })
@@ -106,7 +114,10 @@ impl HarborSealService {
             http_client,
         );
 
-        Self { client, key_servers }
+        Self {
+            client,
+            key_servers,
+        }
     }
 
     pub async fn encrypt(
@@ -115,10 +126,10 @@ impl HarborSealService {
         policy_id: &str,
         plaintext: &[u8],
     ) -> Result<(Vec<u8>, Vec<u8>), HarborError> {
-        let policy_address = Address::from_str(policy_id)
-            .map_err(|e| HarborError::seal(e.to_string()))?;
-        let package_address = Address::from_str(package_id)
-            .map_err(|e| HarborError::seal(e.to_string()))?;
+        let policy_address =
+            Address::from_str(policy_id).map_err(|e| HarborError::seal(e.to_string()))?;
+        let package_address =
+            Address::from_str(package_id).map_err(|e| HarborError::seal(e.to_string()))?;
 
         let mut nonce = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut nonce);
@@ -128,8 +139,7 @@ impl HarborSealService {
             nonce,
         };
 
-        let id_bytes = bcs::to_bytes(&identity)
-            .map_err(|e| HarborError::seal(e.to_string()))?;
+        let id_bytes = bcs::to_bytes(&identity).map_err(|e| HarborError::seal(e.to_string()))?;
 
         let (encrypted, _) = self
             .client
@@ -143,8 +153,8 @@ impl HarborSealService {
             .await
             .map_err(|e| HarborError::seal(e.to_string()))?;
 
-        let encrypted_bytes = bcs::to_bytes(&encrypted)
-            .map_err(|e| HarborError::seal(e.to_string()))?;
+        let encrypted_bytes =
+            bcs::to_bytes(&encrypted).map_err(|e| HarborError::seal(e.to_string()))?;
 
         Ok((id_bytes, encrypted_bytes))
     }
@@ -158,47 +168,55 @@ impl HarborSealService {
         ciphertext: &[u8],
         session_key: &seal_sdk_rs::session_key::SessionKey,
     ) -> Result<Vec<u8>, HarborError> {
-        let policy_address = Address::from_str(policy_id)
-            .map_err(|e| HarborError::seal(e.to_string()))?;
-        let package_address = Address::from_str(package_id)
-            .map_err(|e| HarborError::seal(e.to_string()))?;
+        let policy_address =
+            Address::from_str(policy_id).map_err(|e| HarborError::seal(e.to_string()))?;
+        let package_address =
+            Address::from_str(package_id).map_err(|e| HarborError::seal(e.to_string()))?;
 
         let approval_ptb = build_seal_approve_ptb(
-            package_address, 
-            policy_address, 
-            policy_initial_shared_version, 
-            id_bytes
+            package_address,
+            policy_address,
+            policy_initial_shared_version,
+            id_bytes,
         )?;
 
         let refs = vec![ciphertext];
-        
+
         let aggregator_urls = HashMap::new();
 
-        let mut results = self.client
+        let mut results = self
+            .client
             .decrypt_multiple_objects_bytes(&refs, approval_ptb, session_key, aggregator_urls)
             .await
             .map_err(|e| HarborError::seal(e.to_string()))?;
 
-        results.pop().ok_or_else(|| HarborError::seal("No decrypted data returned"))
+        results
+            .pop()
+            .ok_or_else(|| HarborError::seal("No decrypted data returned"))
     }
 }
 
-pub fn sign_reserve_bytes(keypair: &Ed25519KeyPair, base64_bytes: &str) -> Result<String, HarborError> {
+pub fn sign_reserve_bytes(
+    keypair: &Ed25519KeyPair,
+    base64_bytes: &str,
+) -> Result<String, HarborError> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    use fastcrypto::hash::{HashFunction, Blake2b256};
+    use fastcrypto::hash::{Blake2b256, HashFunction};
     use fastcrypto::traits::KeyPair;
-    
-    let bytes = STANDARD.decode(base64_bytes).map_err(|e| HarborError::seal(e.to_string()))?;
-    
+
+    let bytes = STANDARD
+        .decode(base64_bytes)
+        .map_err(|e| HarborError::seal(e.to_string()))?;
+
     let mut message = vec![0, 0, 0];
     message.extend_from_slice(&bytes);
 
     let hash = Blake2b256::digest(&message);
     let sig = keypair.sign(&hash.digest);
-    
+
     let mut full_sig = vec![0x00];
     full_sig.extend_from_slice(sig.as_ref());
     full_sig.extend_from_slice(keypair.public().as_ref());
-    
+
     Ok(STANDARD.encode(&full_sig))
 }

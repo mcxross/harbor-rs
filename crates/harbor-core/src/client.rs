@@ -1,7 +1,7 @@
-use std::time::Duration;
 use reqwest::{Client, multipart};
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::time::Duration;
 
 use crate::error::HarborError;
 use crate::types::{
@@ -54,13 +54,22 @@ impl HarborClient {
         Self { client, options }
     }
 
-    async fn handle_response<T: DeserializeOwned>(res: reqwest::Response) -> Result<T, HarborError> {
+    async fn handle_response<T: DeserializeOwned>(
+        res: reqwest::Response,
+    ) -> Result<T, HarborError> {
         if !res.status().is_success() {
             let status = res.status();
-            let body = res.text().await.unwrap_or_else(|_| "<unreadable body>".to_string());
+            let body = res
+                .text()
+                .await
+                .unwrap_or_else(|_| "<unreadable body>".to_string());
             let parsed: Option<HarborErrorBody> = serde_json::from_str(&body).ok();
             let code = parsed.as_ref().and_then(|p| p.code.clone());
-            return Err(HarborError::Http { status, message: body, code });
+            return Err(HarborError::Http {
+                status,
+                message: body,
+                code,
+            });
         }
         res.json::<T>().await.map_err(Into::into)
     }
@@ -73,7 +82,10 @@ impl HarborClient {
     }
 
     pub async fn list_buckets(&self, space_id: &str) -> Result<Vec<BucketSummary>, HarborError> {
-        let url = format!("{}/api/v1/spaces/{}/buckets", self.options.base_url, space_id);
+        let url = format!(
+            "{}/api/v1/spaces/{}/buckets",
+            self.options.base_url, space_id
+        );
         let res = self.client.get(&url).send().await?;
         let body: BucketListResponse = Self::handle_response(res).await?;
         Ok(body.buckets)
@@ -86,22 +98,39 @@ impl HarborClient {
         Ok(body.data)
     }
 
-    pub async fn reserve_bucket(&self, space_id: &str, name: &str) -> Result<ReserveResponse, HarborError> {
-        let url = format!("{}/api/v1/spaces/{}/buckets", self.options.base_url, space_id);
+    pub async fn reserve_bucket(
+        &self,
+        space_id: &str,
+        name: &str,
+    ) -> Result<ReserveResponse, HarborError> {
+        let url = format!(
+            "{}/api/v1/spaces/{}/buckets",
+            self.options.base_url, space_id
+        );
         let payload = json!({ "name": name, "scope": "private" });
         let res = self.client.post(&url).json(&payload).send().await?;
         Self::handle_response(res).await
     }
 
-    pub async fn finalize_bucket(&self, bucket_id: &str, signature: &str) -> Result<FinalizeResponse, HarborError> {
-        let url = format!("{}/api/v1/buckets/{}/finalize", self.options.base_url, bucket_id);
+    pub async fn finalize_bucket(
+        &self,
+        bucket_id: &str,
+        signature: &str,
+    ) -> Result<FinalizeResponse, HarborError> {
+        let url = format!(
+            "{}/api/v1/buckets/{}/finalize",
+            self.options.base_url, bucket_id
+        );
         let payload = json!({ "signature": signature });
         let res = self.client.post(&url).json(&payload).send().await?;
         Self::handle_response(res).await
     }
 
     pub async fn delete_bucket(&self, bucket_id: &str) -> Result<(), HarborError> {
-        let url = format!("{}/api/v1/buckets/{}?confirm=true", self.options.base_url, bucket_id);
+        let url = format!(
+            "{}/api/v1/buckets/{}?confirm=true",
+            self.options.base_url, bucket_id
+        );
         let res = self.client.delete(&url).send().await?;
         if res.status() == reqwest::StatusCode::NO_CONTENT {
             Ok(())
@@ -110,12 +139,19 @@ impl HarborClient {
             let body = res.text().await.unwrap_or_else(|_| "".to_string());
             let parsed: Option<HarborErrorBody> = serde_json::from_str(&body).ok();
             let code = parsed.as_ref().and_then(|p| p.code.clone());
-            Err(HarborError::Http { status, message: body, code })
+            Err(HarborError::Http {
+                status,
+                message: body,
+                code,
+            })
         }
     }
 
     pub async fn list_files(&self, bucket_id: &str) -> Result<Vec<FileSummary>, HarborError> {
-        let url = format!("{}/api/v1/buckets/{}/files", self.options.base_url, bucket_id);
+        let url = format!(
+            "{}/api/v1/buckets/{}/files",
+            self.options.base_url, bucket_id
+        );
         let res = self.client.get(&url).send().await?;
         let body: FileListResponse = Self::handle_response(res).await?;
         Ok(body.data)
@@ -128,14 +164,17 @@ impl HarborClient {
         ciphertext: Vec<u8>,
         mut on_retry: impl FnMut(u32, &str),
     ) -> Result<UploadResponse, HarborError> {
-        let url = format!("{}/api/v1/buckets/{}/files", self.options.base_url, bucket_id);
-        
+        let url = format!(
+            "{}/api/v1/buckets/{}/files",
+            self.options.base_url, bucket_id
+        );
+
         for attempt in 1..=self.options.upload_max_retries {
             let part = multipart::Part::bytes(ciphertext.clone())
                 .file_name(file_name.to_string())
                 .mime_str("application/octet-stream")
                 .unwrap();
-            
+
             let form = multipart::Form::new()
                 .part("file", part)
                 .text("name", file_name.to_string());
@@ -149,28 +188,36 @@ impl HarborClient {
             let body = res.text().await.unwrap_or_default();
             let parsed: Option<HarborErrorBody> = serde_json::from_str(&body).ok();
 
-            if status == reqwest::StatusCode::FORBIDDEN {
-                if let Some(ref p) = parsed {
-                    if p.code.as_deref() == Some("mirror_missing_grant") {
-                        on_retry(attempt, &body);
-                        tokio::time::sleep(self.options.upload_retry_delay).await;
-                        continue;
-                    }
-                }
+            if status == reqwest::StatusCode::FORBIDDEN
+                && parsed.as_ref().and_then(|p| p.code.as_deref()) == Some("mirror_missing_grant")
+            {
+                on_retry(attempt, &body);
+                tokio::time::sleep(self.options.upload_retry_delay).await;
+                continue;
             }
 
-            return Err(HarborError::Http { 
-                status, 
-                message: body, 
-                code: parsed.and_then(|p| p.code) 
+            return Err(HarborError::Http {
+                status,
+                message: body,
+                code: parsed.and_then(|p| p.code),
             });
         }
 
-        Err(HarborError::Timeout(format!("Upload failed after {} attempts", self.options.upload_max_retries)))
+        Err(HarborError::Timeout(format!(
+            "Upload failed after {} attempts",
+            self.options.upload_max_retries
+        )))
     }
 
-    pub async fn get_file_status(&self, bucket_id: &str, file_id: &str) -> Result<StatusResponse, HarborError> {
-        let url = format!("{}/api/v1/buckets/{}/files/{}/status", self.options.base_url, bucket_id, file_id);
+    pub async fn get_file_status(
+        &self,
+        bucket_id: &str,
+        file_id: &str,
+    ) -> Result<StatusResponse, HarborError> {
+        let url = format!(
+            "{}/api/v1/buckets/{}/files/{}/status",
+            self.options.base_url, bucket_id, file_id
+        );
         let res = self.client.get(&url).send().await?;
         Self::handle_response(res).await
     }
@@ -184,7 +231,7 @@ impl HarborClient {
         for attempt in 1..=self.options.poll_max_attempts {
             let status = self.get_file_status(bucket_id, file_id).await?;
             on_tick(attempt, &status.data.state);
-            
+
             if status.data.state == "completed" {
                 return Ok(());
             }
@@ -198,11 +245,20 @@ impl HarborClient {
             }
             tokio::time::sleep(self.options.poll_delay).await;
         }
-        Err(HarborError::Timeout("File did not reach completed state in time".to_string()))
+        Err(HarborError::Timeout(
+            "File did not reach completed state in time".to_string(),
+        ))
     }
 
-    pub async fn download_file(&self, bucket_id: &str, file_id: &str) -> Result<Vec<u8>, HarborError> {
-        let url = format!("{}/api/v1/buckets/{}/files/{}/download", self.options.base_url, bucket_id, file_id);
+    pub async fn download_file(
+        &self,
+        bucket_id: &str,
+        file_id: &str,
+    ) -> Result<Vec<u8>, HarborError> {
+        let url = format!(
+            "{}/api/v1/buckets/{}/files/{}/download",
+            self.options.base_url, bucket_id, file_id
+        );
         let res = self.client.get(&url).send().await?;
         if res.status().is_success() {
             let bytes = res.bytes().await?;
@@ -210,19 +266,30 @@ impl HarborClient {
         } else {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            Err(HarborError::Http { status, message: body, code: None })
+            Err(HarborError::Http {
+                status,
+                message: body,
+                code: None,
+            })
         }
     }
 
     pub async fn delete_file(&self, bucket_id: &str, file_id: &str) -> Result<(), HarborError> {
-        let url = format!("{}/api/v1/buckets/{}/files/{}", self.options.base_url, bucket_id, file_id);
+        let url = format!(
+            "{}/api/v1/buckets/{}/files/{}",
+            self.options.base_url, bucket_id, file_id
+        );
         let res = self.client.delete(&url).send().await?;
         if res.status() == reqwest::StatusCode::NO_CONTENT {
             Ok(())
         } else {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            Err(HarborError::Http { status, message: body, code: None })
+            Err(HarborError::Http {
+                status,
+                message: body,
+                code: None,
+            })
         }
     }
 }

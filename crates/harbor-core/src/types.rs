@@ -131,7 +131,10 @@ mod tests {
         assert_eq!(parsed.data.id, "30275ac3-fa62-4533-b623-ec84d092be00");
         assert_eq!(parsed.data.name, "test-bucket");
         assert_eq!(parsed.data.state, "active");
-        assert_eq!(parsed.data.seal_policy_id.as_deref(), Some("0xad0bdff805cd6f8c32b3f74ed979bcb66852ed2168a8954cbbdf7e26cfae4ef4"));
+        assert_eq!(
+            parsed.data.seal_policy_id.as_deref(),
+            Some("0xad0bdff805cd6f8c32b3f74ed979bcb66852ed2168a8954cbbdf7e26cfae4ef4")
+        );
     }
 
     #[test]
