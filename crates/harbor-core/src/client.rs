@@ -17,6 +17,8 @@ pub struct HarborClientOptions {
     pub upload_retry_delay: Duration,
     pub poll_delay: Duration,
     pub poll_max_attempts: u32,
+    pub connect_timeout: Option<Duration>,
+    pub request_timeout: Option<Duration>,
 }
 
 impl Default for HarborClientOptions {
@@ -28,6 +30,8 @@ impl Default for HarborClientOptions {
             upload_retry_delay: Duration::from_millis(3000),
             poll_delay: Duration::from_millis(1500),
             poll_max_attempts: 60,
+            connect_timeout: Some(Duration::from_secs(10)),
+            request_timeout: Some(Duration::from_secs(30)),
         }
     }
 }
@@ -46,8 +50,15 @@ impl HarborClient {
                 .expect("Invalid API key header value"),
         );
 
-        let client = Client::builder()
-            .default_headers(headers)
+        let mut client_builder = Client::builder().default_headers(headers);
+        if let Some(timeout) = options.connect_timeout {
+            client_builder = client_builder.connect_timeout(timeout);
+        }
+        if let Some(timeout) = options.request_timeout {
+            client_builder = client_builder.timeout(timeout);
+        }
+
+        let client = client_builder
             .build()
             .expect("Failed to build reqwest client");
 
@@ -169,8 +180,10 @@ impl HarborClient {
             self.options.base_url, bucket_id
         );
 
+        let ciphertext_bytes = bytes::Bytes::from(ciphertext);
+
         for attempt in 1..=self.options.upload_max_retries {
-            let part = multipart::Part::bytes(ciphertext.clone())
+            let part = multipart::Part::stream(ciphertext_bytes.clone())
                 .file_name(file_name.to_string())
                 .mime_str("application/octet-stream")
                 .unwrap();

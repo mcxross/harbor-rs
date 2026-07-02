@@ -60,26 +60,15 @@ impl seal_sdk_rs::signer::Signer for SimpleSigner {
         &mut self,
         data: Vec<u8>,
     ) -> Result<fastcrypto::ed25519::Ed25519Signature, Self::Error> {
-        // Construct the IntentMessage for PersonalMessage
-        // Intent is [3, 0, 0] (Scope::PersonalMessage, Version::V0, AppId::Sui)
-        let mut intent_msg = vec![3, 0, 0];
+        use shared_crypto::intent::{Intent, IntentMessage, PersonalMessage};
 
-        // Serialize the data as a BCS byte array (ULEB128 length followed by bytes)
-        let mut len = data.len();
-        loop {
-            let mut byte = (len & 0x7F) as u8;
-            len >>= 7;
-            if len != 0 {
-                byte |= 0x80;
-            }
-            intent_msg.push(byte);
-            if len == 0 {
-                break;
-            }
-        }
-        intent_msg.extend_from_slice(&data);
+        let intent_msg = IntentMessage::new(
+            Intent::personal_message(),
+            PersonalMessage { message: data },
+        );
+        let serialized = bcs::to_bytes(&intent_msg)?;
 
-        let hash = Blake2b256::digest(&intent_msg);
+        let hash = Blake2b256::digest(&serialized);
         Ok(self.0.sign(&hash.digest))
     }
 }

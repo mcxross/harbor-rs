@@ -3,10 +3,8 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use fastcrypto::ed25519::Ed25519KeyPair;
-use fastcrypto::traits::Signer;
 use rand::RngCore;
 use seal_sdk_rs::base_client::{BaseSealClient, KeyServerConfig};
-use seal_sdk_rs::cache::NoCache;
 use seal_sdk_rs::error::SealClientError;
 use seal_sdk_rs::generic_types::ObjectID;
 use sui_sdk_types::Address;
@@ -70,8 +68,22 @@ impl seal_sdk_rs::http_client::HttpClient for SealReqwestClient {
 }
 
 type HarborSealClient = BaseSealClient<
-    NoCache<seal_sdk_rs::cache_key::KeyServerInfoCacheKey, seal_sdk_rs::base_client::KeyServerInfo>,
-    NoCache<seal_sdk_rs::cache_key::DerivedKeyCacheKey, seal_sdk_rs::base_client::DerivedKeys>,
+    std::sync::Arc<
+        tokio::sync::Mutex<
+            HashMap<
+                seal_sdk_rs::cache_key::KeyServerInfoCacheKey,
+                seal_sdk_rs::base_client::KeyServerInfo,
+            >,
+        >,
+    >,
+    std::sync::Arc<
+        tokio::sync::Mutex<
+            HashMap<
+                seal_sdk_rs::cache_key::DerivedKeyCacheKey,
+                seal_sdk_rs::base_client::DerivedKeys,
+            >,
+        >,
+    >,
     SealClientError,
     CurrentSuiClientAdapter,
     SealClientError,
@@ -108,8 +120,8 @@ impl HarborSealService {
             .collect();
 
         let client = BaseSealClient::new_custom(
-            NoCache::default(),
-            NoCache::default(),
+            std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             sui_adapter,
             http_client,
         );
@@ -202,21 +214,25 @@ pub fn sign_reserve_bytes(
 ) -> Result<String, HarborError> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use fastcrypto::hash::{Blake2b256, HashFunction};
-    use fastcrypto::traits::KeyPair;
+    use fastcrypto::traits::EncodeDecodeBase64 as _;
+    use shared_crypto::intent::Intent;
+    use sui_types::crypto::{EncodeDecodeBase64 as _, Signature, SuiKeyPair};
 
     let bytes = STANDARD
         .decode(base64_bytes)
         .map_err(|e| HarborError::seal(e.to_string()))?;
 
-    let mut message = vec![0, 0, 0];
+    let mut message = Vec::with_capacity(3 + bytes.len());
+    message.extend_from_slice(&Intent::sui_transaction().to_bytes());
     message.extend_from_slice(&bytes);
 
     let hash = Blake2b256::digest(&message);
-    let sig = keypair.sign(&hash.digest);
 
-    let mut full_sig = vec![0x00];
-    full_sig.extend_from_slice(sig.as_ref());
-    full_sig.extend_from_slice(keypair.public().as_ref());
+    let kp_b64 = keypair.encode_base64();
+    let sui_keypair = SuiKeyPair::decode_base64(&kp_b64)
+        .map_err(|e| HarborError::seal(format!("Failed to convert keypair: {:?}", e)))?;
 
-    Ok(STANDARD.encode(&full_sig))
+    let signature = Signature::new_hashed(&hash.digest, &sui_keypair);
+
+    Ok(STANDARD.encode(signature.as_ref()))
 }
